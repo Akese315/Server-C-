@@ -1,6 +1,0 @@
-2022-12-23 01:11:37.121 [info] update#setState idle
-2022-12-23 01:11:38.699 [info] Starting extension host with pid 50000 (fork() took 20 ms).
-2022-12-23 01:12:07.128 [info] update#setState checking for updates
-2022-12-23 01:12:07.132 [info] update#setState idle
-2022-12-23 01:14:30.916 [info] Waiting for extension host with pid 50000 to exit.
-2022-12-23 01:14:30.935 [info] Extension host with pid 50000 exited with code: 0, signal: null.

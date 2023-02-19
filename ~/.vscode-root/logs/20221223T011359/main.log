@@ -1,4 +1,0 @@
-2022-12-23 01:14:00.002 [info] update#setState idle
-2022-12-23 01:14:08.769 [info] Starting extension host with pid 50564 (fork() took 51 ms).
-2022-12-23 01:14:26.256 [info] Waiting for extension host with pid 50564 to exit.
-2022-12-23 01:14:26.297 [info] Extension host with pid 50564 exited with code: 0, signal: null.
