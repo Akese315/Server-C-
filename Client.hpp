@@ -34,8 +34,8 @@ class Client
         void setDataCacheData(char* data, ushort dataLen);
         void setPreviousData();
 
-        void sendData(const char * data, size_t len);
-        int receiveData(void *data);
+        virtual void sendData(const char * data, size_t len);
+        virtual int receiveData(void *data);
 
     private:
         uint32_t address;

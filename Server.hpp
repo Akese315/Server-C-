@@ -55,9 +55,9 @@ class Server: public Supervisor
             }
         };
         
-        void bansmn()
+        virtual void bansmn(T* client)
         {
-            
+                          
         };
         void shutdown();
         void restart()
@@ -164,6 +164,7 @@ class Server: public Supervisor
         const static ushort  NEW_CONNECTION = 3;
         const static ushort  DISCONNECTED = 4;
         const static ushort  MESSAGE = 5;
+        const static ushort  BAN = 6;
         //BASIC FLAG
 
         const static ushort MAX_EVENTS_SIZE = 1023;
@@ -177,7 +178,7 @@ class Server: public Supervisor
 
         struct epoll_event events[MAX_EVENTS_SIZE];
         std::vector<Listener> ListenerArray;
-        std::unordered_map<uint32_t,T*> addrPlayerMap;
+        std::unordered_map<uint32_t,T*> addrBanMap;
         std::unordered_map<int,T*> socketPlayerMap;
         int activeEvents = 0;
         int epollfd;
@@ -193,7 +194,7 @@ class Server: public Supervisor
         bool loopBool;  
         bool isRunning;
 
-        //Method 
+        //méthodes
         void getError(const char* where)
         {
             std::string error = strerror(errno)+(std::string)" in "+where;
@@ -240,7 +241,7 @@ class Server: public Supervisor
 
                 if(this->isDisconnected(fd))
                 {
-                    epoll_ctl(epollfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
                     memmove(&events[i], &events[i+1], (activeEvents - i - 1) * sizeof(epoll_event));
                     Task task{};
                     task.fd = fd;
@@ -268,7 +269,6 @@ class Server: public Supervisor
         {
             char buffer[1];
             if(recv(fd,buffer,1,MSG_PEEK) ==0){
-                close(fd);
                 return true;
             }
             else return false;
@@ -295,7 +295,6 @@ class Server: public Supervisor
             }    
             addFD(newFD);
             T* client = new  T(socketParam.sin_addr.s_addr,socketParam.sin_port, newFD);
-            addrPlayerMap.insert({socketParam.sin_addr.s_addr,client});
             socketPlayerMap.insert({newFD,client}); 
 
             Task task{};
@@ -320,6 +319,21 @@ class Server: public Supervisor
             fds.push_back(fd);
             activeEvents++;
         };
+        void removeFD(int fd)
+        {
+            if (epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL) == -1) {
+                getError("Remove fd: ");
+            }
+            for(int i = 0; i<activeEvents; i ++)
+            {
+                if(this->events[i].data.fd == fd)
+                {
+                    memmove(&events[i], &events[i+1], (activeEvents - i - 1) * sizeof(epoll_event));
+                    this->activeEvents -=1;
+                }
+            }
+        }
+
         void closeAllConnections()
         {
             for(unsigned short i = 1; i< activeEvents; i++)
@@ -404,13 +418,18 @@ class Server: public Supervisor
             }
             T* client = it->second;
 
-            this->receiveTask(client,task.flag);    
-            if(task.flag == Server<T>::DISCONNECTED)
+            this->receiveTask(client,task.flag);  
+            if(task.flag == Server<T>::BAN)
+            {
+                this->bansmn(client);
+                this->removeFD(it->first);
+            }  
+            if(task.flag == Server<T>::DISCONNECTED|| task.flag == Server<T>::BAN)
             {
                 this->socketPlayerMap.erase(it);
                 delete client;
-
             }
+
         };
         void loop()
         {
