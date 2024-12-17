@@ -8,28 +8,29 @@
 #include "ThreadPool.hpp"
 #include "App.hpp"
 
-MyServer * server;
-App * app;
+MyServer *server;
+App *app;
 bool loop;
 
 void cleanup(int signum)
 {
     std::string quit = "";
-    std::cout <<"\n";
+    std::cout << "\n";
     Console::printWarning("are you sure you want to leave? (quit)");
     std::getline(std::cin, quit);
-    if(quit == "quit")
+    if (quit == "quit")
     {
         exit(signum);
-    }else
+    }
+    else
     {
         Console::printInfo("abort connard");
-    }        
+    }
 }
 
 void cleanup()
 {
-    
+
     server->stop();
     app->stop();
 
@@ -39,24 +40,21 @@ void cleanup()
     Log::closeFile();
 }
 
-
-
 int main()
 {
 
-    
     server = new MyServer("server");
-    app =new  App("app");
-   
+    app = new App("app");
+
     struct sigaction siga;
-    siga.sa_handler = cleanup;                                                                                                                                                                                                                                                                   
-    sigaction(SIGINT,&siga,NULL);
+    siga.sa_handler = cleanup;
+    sigaction(SIGINT, &siga, NULL);
     atexit(cleanup);
 
-    unsigned short int port =  3000; 
+    unsigned short int port = 3000;
 
-    Listener listener = server->createListener(MyServer::TCP, port,-1);
-    Listener listener2 = server->createListener(MyServer::UDP, port,-1);
+    Listener listener = server->createListener(MyServer::TCP, port, -1);
+    Listener listener2 = server->createListener(MyServer::UDP, port, -1);
     server->addListener(listener);
     server->addListener(listener2);
 
@@ -66,11 +64,10 @@ int main()
 
     loop = true;
 
-    while(loop)
-    {   
+    while (loop)
+    {
         std::this_thread::sleep_for(std::chrono::seconds(10));
     }
 
     return 0;
 };
-

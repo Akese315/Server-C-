@@ -1,6 +1,5 @@
 #include "Client.hpp"
 
-
 Client::Client(uint32_t address, ushort port, int socket)
 {
     this->address = address;
@@ -11,14 +10,16 @@ Client::Client(uint32_t address, ushort port, int socket)
 
 Client::~Client()
 {
-    //condition variable here before closing
-    //check if tasks is == 0
+    // condition variable here before closing
+    // check if tasks is == 0
     close(this->socket);
 }
 
 std::string Client::getIP()
 {
-    struct in_addr addr{};
+    struct in_addr addr
+    {
+    };
     addr.s_addr = this->address;
     return inet_ntoa(addr);
 }
@@ -46,7 +47,7 @@ void Client::setDataCacheEvent(ushort event)
     this->currentData->event = event;
 }
 
-void Client::setDataCacheData(char*data, ushort dataLen)
+void Client::setDataCacheData(char *data, ushort dataLen)
 {
     this->currentData->data = data;
     this->currentData->dataLen = dataLen;
@@ -69,21 +70,29 @@ void Client::setDataCacheState(ushort state)
     this->currentData->state = state;
 };
 
-void Client::sendData(const char* data, size_t len)
+void Client::sendData(const char *data, size_t len)
 {
-    
-    this->fdmutex.lock();
-    int bytes = send(this->socket, data ,len,MSG_DONTWAIT);
-    this->fdmutex.unlock();
-    if((size_t)bytes != len)
+
+    try
     {
-        std::string error = "Message length is : "+std::to_string(len)+" but sent : "+std::to_string(bytes)+" bytes";
-        Console::printError(error);
+        this->fdmutex.lock();
+        int bytes = send(this->socket, data, len, MSG_DONTWAIT);
+        this->fdmutex.unlock();
+        if ((size_t)bytes != len)
+        {
+            std::string error = "Message length is : " + std::to_string(len) + " but sent : " + std::to_string(bytes) + " bytes";
+            Console::printError(error);
+        }
+    }
+    catch (...)
+    {
+        Console::printError("Error while sending");
+        throw std::runtime_error("Error while sending");
     }
 };
 
-int Client::receiveData(void * data)
+int Client::receiveData(void *data, size_t len)
 {
-    int bytes = recv(this->socket,data,sizeof(data),MSG_DONTWAIT);
+    int bytes = recv(this->socket, data, len, MSG_DONTWAIT);
     return bytes;
 }
