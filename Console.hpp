@@ -6,14 +6,12 @@
 class Console
 {
 public:
-   
-    static void printError(std::string error);
-    static void printWarning(std::string warning);
-    static void printInfo(std::string printInfo);
-    static void printSuccess(std::string success);
+    static void print_error(std::string error);
+    static void print_warning(std::string warning);
+    static void print_info(std::string print_info);
+    static void print_success(std::string success);
 
 private:
-    
     Log logger;
 
     static std::string greenColor;
@@ -21,5 +19,4 @@ private:
     static std::string redColor;
     static std::string blueColor;
     static std::string whiteColor;
-    
 };

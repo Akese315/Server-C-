@@ -4,18 +4,17 @@
 
 class App : public Supervisor
 {
-    public: 
+public:
     ~App();
     App(std::string name);
     void stop();
-   
 
-    private:
-        std::thread myThread;
-        std::mutex loopBoolMutex;
-        bool loopBool;
-        bool isRunning;
+private:
+    std::thread myThread;
+    std::mutex loopBoolMutex;
+    bool loopBool;
+    bool isRunning;
 
-        void loop();
-        void asyncFunction(Task task) override;
+    void loop();
+    void async_function(Task task) override;
 };

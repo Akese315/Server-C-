@@ -8,15 +8,15 @@
 #include "ThreadPool.hpp"
 #include "App.hpp"
 
-MyServer *server;
-App *app;
+MyServer server("server");
+App app("app");
 bool loop;
 
 void cleanup(int signum)
 {
     std::string quit = "";
     std::cout << "\n";
-    Console::printWarning("are you sure you want to leave? (quit)");
+    Console::print_warning("are you sure you want to leave? (quit)");
     std::getline(std::cin, quit);
     if (quit == "quit")
     {
@@ -24,18 +24,16 @@ void cleanup(int signum)
     }
     else
     {
-        Console::printInfo("abort connard");
+        Console::print_info("abort connard");
     }
 }
 
 void cleanup()
 {
 
-    server->stop();
-    app->stop();
+    server.stop();
+    app.stop();
 
-    delete app;
-    delete server;
     loop = false;
     Log::closeFile();
 }
@@ -43,22 +41,19 @@ void cleanup()
 int main()
 {
 
-    server = new MyServer("server");
-    app = new App("app");
-
-    struct sigaction siga;
+        struct sigaction siga;
     siga.sa_handler = cleanup;
     sigaction(SIGINT, &siga, NULL);
     atexit(cleanup);
 
     unsigned short int port = 3000;
 
-    Listener listener = server->createListener(MyServer::TCP, port, -1);
-    Listener listener2 = server->createListener(MyServer::UDP, port, -1);
-    server->addListener(listener);
-    server->addListener(listener2);
+    Listener listener = server.create_listener(MyServer::TCP, port, -1);
+    Listener listener2 = server.create_listener(MyServer::UDP, port, -1);
+    server.add_listener(listener);
+    server.add_listener(listener2);
 
-    server->start();
+    server.start();
 
     std::string command;
 

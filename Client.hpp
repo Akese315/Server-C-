@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <mutex>
 #include <arpa/inet.h>
+#include <shared_mutex>
 #include "Console.hpp"
 
 struct Datacache
@@ -21,11 +22,14 @@ struct Datacache
 class Client
 {
 public:
+    bool isActive;
+
     Client(uint32_t adress, ushort port, int socket);
     ~Client();
-    std::string getIP();
     int getSocket();
-    ushort getPort();
+    std::string get_adress_str();
+    uint32_t get_ip();
+    ushort get_port();
     ushort getDataCacheState();
     ushort getDataCacheEvent();
     ushort getDataCacheLen();
@@ -33,16 +37,20 @@ public:
     void setDataCacheEvent(ushort event);
     void setDataCacheData(char *data, ushort dataLen);
     void setPreviousData();
-
-    virtual void sendData(const char *data, size_t len);
-    virtual int receiveData(void *data, size_t len);
+    void set_active(bool active);
+    void sendData(const char *data, size_t len);
+    int receiveData(void *data, size_t len);
 
 private:
     uint32_t address;
     ushort port;
     ushort tasks;
     int socket;
-    std::mutex fdmutex;
+    std::shared_mutex fdmutex;
     struct Datacache *previousData;
     struct Datacache *currentData;
+
+protected:
+    virtual int onReceiveData(void *data, size_t len);     // do not call directly this function
+    virtual void onSendData(const char *data, size_t len); // do not call directly this function
 };

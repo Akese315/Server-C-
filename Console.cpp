@@ -6,22 +6,21 @@ std::string Console::blueColor = "\033[36m";
 std::string Console::yellowColor = "\033[93m";
 std::string Console::whiteColor = "\033[97m";
 
-void Console::printError(std::string error)
+void Console::print_error(std::string error)
 {
-    std::string strError = "ERROR : "+ error;
+    std::string strError = "ERROR : " + error;
 
-    std::cout <<Console::redColor;
+    std::cout << Console::redColor;
     std::cout << strError;
-    std::cout <<Console::whiteColor;
+    std::cout << Console::whiteColor;
     std::cout << "\n";
 
     Log::writeLog(strError.c_str());
 }
 
-
-void Console::printInfo(std::string info)
+void Console::print_info(std::string info)
 {
-    std::string strInfo = "INFO : "+ info;
+    std::string strInfo = "INFO : " + info;
 
     std::cout << Console::blueColor;
     std::cout << strInfo;
@@ -31,9 +30,9 @@ void Console::printInfo(std::string info)
     Log::writeLog(strInfo.c_str());
 }
 
-void Console::printWarning(std::string warning)
+void Console::print_warning(std::string warning)
 {
-    std::string strWarning = "WARNING : "+ warning;
+    std::string strWarning = "WARNING : " + warning;
 
     std::cout << Console::yellowColor;
     std::cout << strWarning;
@@ -43,9 +42,9 @@ void Console::printWarning(std::string warning)
     Log::writeLog(strWarning.c_str());
 }
 
-void Console::printSuccess(std::string success)
+void Console::print_success(std::string success)
 {
-    std::string strSuccess = "SUCCESS : "+ success;
+    std::string strSuccess = "SUCCESS : " + success;
 
     std::cout << Console::greenColor;
     std::cout << strSuccess;

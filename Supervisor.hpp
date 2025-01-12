@@ -14,11 +14,11 @@ public:
     ~Supervisor();
 
 protected:
-    void doTask(Task task);
-    virtual void asyncFunction(Task task){};
+    void do_task(Task task);
+    virtual void async_function(Task task) {};
 
 private:
     static ThreadPool<Task, 10> threadPool;
-    static void receiveAsyncFunction(Task task);
+    static void receive_async_function(Task task);
     static std::unordered_map<std::string, Supervisor *> objectList;
 };

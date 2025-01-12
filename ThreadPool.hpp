@@ -5,9 +5,10 @@
 #include <queue>
 #include <thread>
 #include <functional>
+#include <shared_mutex>
 #include <iostream>
 #include "Console.hpp"
-#include "ProcessMonitor.cpp"
+#include "ProcessMonitor.hpp"
 
 class Task
 {
@@ -53,7 +54,7 @@ public:
 	void sendStop()
 	{
 		this->isTerminated = true;
-		Console::printInfo("All the thread were ordered to die.");
+		Console::print_info("All the thread were ordered to die.");
 		this->not_empty.notify_all();
 	}
 
@@ -113,7 +114,7 @@ public:
 		}
 		if (this->runningThread == 0)
 		{
-			Console::printInfo("All workers are destroyed.");
+			Console::print_info("All workers are destroyed.");
 		}
 	}
 };

@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 #include <fstream>
 #include <chrono>
@@ -14,20 +15,21 @@ public:
     static std::ofstream file;
     static bool is_first_process;
     std::string name;
-    time_point<system_clock> start;
-    time_point<system_clock> end;
+    time_point<high_resolution_clock> start;
+    time_point<high_resolution_clock> end;
 
     ProcessMonitor(std::string name)
     {
         this->name = name;
-        this->start = system_clock::now();
+        this->start = high_resolution_clock::now();
     };
 
     static std::string to_csv(time_point<system_clock> start, time_point<system_clock> end, std::string name)
     {
-        std::time_t start_time = system_clock::to_time_t(start);
-        std::time_t end_time = system_clock::to_time_t(end);
-        return name + "," + std::ctime(&start_time) + "," + std::ctime(&end_time) + "\r\n";
+        auto start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(start.time_since_epoch());
+        auto end_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end.time_since_epoch());
+
+        return name + "," + std::to_string(start_ms.count()) + "," + std::to_string(end_ms.count()) + "\n";
     }
 
     static void first_write()
@@ -47,14 +49,13 @@ public:
             first_write();
             is_first_process = false;
         }
-        std::lock_guard<std::mutex> lock(m);
+        std::unique_lock<std::mutex> lock(m);
         file << to_csv(this->start, this->end, this->name);
-        file.close();
     }
 
     ~ProcessMonitor()
     {
-        this->end = system_clock::now();
+        this->end = high_resolution_clock::now();
         saveProcess();
     };
 };

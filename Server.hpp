@@ -3,6 +3,7 @@
 #include <thread>
 #include <chrono>
 #include <unordered_map>
+#include <set>
 #include <vector>
 #include <errno.h>
 #include <string.h>
@@ -13,10 +14,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <sys/types.h>
 #include <csignal>
 #include <shared_mutex>
-
+#include <memory>
 #include "Supervisor.hpp"
 #include "ProcessMonitor.hpp"
 #include "Client.hpp"
@@ -34,112 +36,58 @@ class Server : public Supervisor
 {
 
 public:
-    /**
-     * @brief Constructor
-     * This function will create a server
-     *
-     * @param name the name of the server (used for the supervisor and by you to identify whom to send task)
-     * @return void
-     */
-
     Server(std::string name) : Supervisor(name)
     {
-        this->loopBool = true;
-        this->isRunning = true;
+        loop_bool = true;
+        is_running = true;
 
-        if (pipe(this->pipefd) == -1)
+        if (pipe(pipe_fd) == -1)
         {
-            getError("pipe");
+            get_error("pipe");
         }
     };
     ~Server()
     {
-        this->closeAllConnections();
-        if (this->isRunning)
+        close_all_connections();
+        if (is_running)
         {
-            this->stop();
+            stop();
         }
     };
 
-    /**
-     *
-     * @brief Ban a client
-     * This function will remove the client from the epoll and close the socket
-     *
-     * @param client the client to ban
-     * @return void
-     */
-
-    void bansmn(T &client)
+    void ban_client(T &client)
     {
-        this->interrupt_epoll_wait(Server::BAN, client.getSocket());
+        interrupt_epoll_wait(Server::BAN, client.get_socket());
     };
 
-    /**
-     *
-     * @brief Disconnect a client
-     * This function will remove the client from the epoll and close the socket
-     *
-     * @param client the client to disconnect
-     * @return void
-     */
-
-    void disconnectsmn(T &client)
+    void disconnect_client(T &client)
     {
-        this->interrupt_epoll_wait(Server::DISCONNECTED, client.getSocket());
+        interrupt_epoll_wait(Server::DISCONNECTED, client.get_socket());
     };
-
-    /**
-     *
-     * @brief Restart the server
-     * This function will restart the server
-     * It will stop the server and start it again
-     *
-     * @return void
-     */
 
     void restart()
     {
-        if (this->isRunning)
+        if (is_running)
         {
-            this->stop();
+            stop();
         }
-        this->loopBool = true;
-        this->isRunning = true;
-        this->myThread = std::thread(&Server<T>::loop, this);
+        loop_bool = true;
+        is_running = true;
+        my_thread = std::thread(&Server<T>::loop, this);
     };
 
-    /**
-     *
-     * @brief Broadcast a message to all clients
-     * This function will send a message to all clients
-     *
-     * @param data the data to send
-     * @param len the length of the data
-     * @return void
-     */
-
-    void broadcastsmth(const char *data, size_t len)
+    void broadcast_message(const char *data, size_t len)
     {
-        for (auto pair : this->socketClientMap)
+        for (auto pair : socket_client_map)
         {
-            pair->second->sendData(data, len);
+            pair->second->send_data(data, len);
         }
     };
 
-    /**
-     *
-     * @brief Find a client by its socket
-     * This function will return a client by its socket
-     *
-     * @param socket the socket of the client
-     * @return T* the client
-     */
-
-    T *findClient(int socket)
+    std::shared_ptr<T> find_client(int socket)
     {
-        auto it = this->socketClientMap.find(socket);
-        if (it == this->socketClientMap.end())
+        auto it = socket_client_map.find(socket);
+        if (it == socket_client_map.end())
         {
             return nullptr;
         }
@@ -148,19 +96,11 @@ public:
             return it->second;
         }
     }
-    /**
-     *
-     * @brief Find a client by its address
-     * This function will return a client by its address
-     *
-     * @param addr the address of the client
-     * @return T* the client
-     */
 
-    T *findClient(uint32_t addr)
+    std::shared_ptr<T> *find_ban(uint32_t addr)
     {
-        auto it = this->addrPlayerMap.find(addr);
-        if (it == this->addrPlayerMap.end())
+        auto it = addr_ban_set.find(addr);
+        if (it == addr_ban_set.end())
         {
             return nullptr;
         }
@@ -170,77 +110,40 @@ public:
         }
     }
 
-    /**
-     * @brief Stop the server
-     * This function will stop the server by sending a stop flag to the epoll through the pipe
-     * It will also join the thread
-     * @return void
-     */
     void stop()
     {
-        this->isRunning = false;
-        this->interrupt_epoll_wait(Server::STOP, 0);
-        if (this->myThread.joinable())
+        is_running = false;
+        interrupt_epoll_wait(Server::STOP, 0);
+        if (my_thread.joinable())
         {
-            this->myThread.join();
+            my_thread.join();
         }
-        Console::printWarning("Server is stopped");
+        Console::print_warning("Server is stopped");
     };
 
-    /**
-     * @brief Receive a task
-     * This function will receive a task from the client
-     *
-     * @param client the client that sent the task
-     * @param taskFlag the flag of the task
-     * @return void
-     */
+    virtual void receive_task(std::shared_ptr<T> client, uint32_t task_flag) {};
 
-    virtual void receiveTask(T *client, int taskFlag) {};
+    virtual void on_disconnect(std::shared_ptr<T> client, uint32_t reason) {};
 
-    /**
-     * @brief On disconnect
-     * This function will be called when a client disconnects
-     * You can override this function to add your own behavior
-     */
-    virtual void onDisconnect(T *client) {};
-
-    /**
-     * @brief Start the server
-     * This function will start the server
-     * It will create the epoll and the listeners
-     * It will also start the thread
-     * @return void
-     */
     void start()
     {
-        Console::printSuccess("Server is starting...");
+        Console::print_success("Server is starting...");
         bool can_start = init();
         if (!can_start)
         {
-            Console::printError("Can't start.");
+            Console::print_error("Can't start.");
             return;
         }
-        Console::printSuccess("Server started :)");
+        Console::print_success("Server started :)");
 
-        for (size_t i = 0; i < ListenerArray.size(); i++)
+        for (size_t i = 0; i < listener_array.size(); i++)
         {
-            listen(ListenerArray[i].socket, 5);
+            listen(listener_array[i].socket, 5);
         }
-        this->myThread = std::thread(&Server<T>::loop, this);
+        my_thread = std::thread(&Server<T>::loop, this);
     };
 
-    /**
-     * @brief Create a listener
-     * This function will create a listener
-     *
-     * @param type the type of the listener (TCP or UDP)
-     * @param port the port of the listener
-     * @param timeout the timeout of the listener
-     * @return Listener the listener
-     */
-
-    Listener createListener(uint16_t type, uint16_t port, uint16_t timeout)
+    Listener create_listener(uint16_t type, uint16_t port, uint16_t timeout)
     {
         Listener listener = {};
         listener.port = port;
@@ -257,26 +160,17 @@ public:
         }
         if (listener.socket == -1 || listener.socket == 0)
         {
-            getError("create listener");
+            get_socket_error("create listener", listener.socket);
         }
-        Console::printInfo("socket created : " + std::to_string(listener.socket));
+        Console::print_info("socket created : " + std::to_string(listener.socket));
         return listener;
     };
-
-    /**
-     * @brief Interrupt epoll wait
-     * This function will interrupt the epoll wait and it will use a shared mutex
-     *
-     * @param flag the flag to send
-     * @param fd the file descriptor
-     * @return int
-     */
 
     int interrupt_epoll_wait(int flag, int fd)
     {
         uint32_t message = 0;
         encode_interrupt_wait_message(message, flag, fd);
-        std::shared_lock lock(this->pipe_shared_mutex);
+        std::unique_lock lock(pipe_unique_mutex);
         if (write(fd, &message, 4) == -1)
         {
             perror("write");
@@ -285,102 +179,99 @@ public:
         return 0;
     };
 
-    /**
-     * @brief Add a listener
-     * This function will add a listener to the server
-     *
-     * @param listener the listener to add
-     * @return void
-     */
-
-    void addListener(Listener listener)
+    void add_listener(Listener listener)
     {
-        ListenerArray.push_back(listener);
+        listener_array.push_back(listener);
     };
 
-    /**
-     * @brief Remove a listener
-     * This function will remove a listener from the server
-     *
-     * @param position the position of the listener to remove
-     * @return void
-     */
-
-    void removeListener(int position)
+    void remove_listener(int position)
     {
-        ListenerArray.erase(ListenerArray.begin() + position);
+        listener_array.erase(listener_array.begin() + position);
     };
 
     const static uint16_t TCP = 1;
     const static uint16_t LISTENER = 1;
     const static uint16_t UDP = 2;
 
-    // BASIC FLAG
-    const static uint16_t NEW_CONNECTION = 3;
-    const static uint16_t DISCONNECTED = 4;
-    const static uint16_t MESSAGE = 5;
-    const static uint16_t BAN = 6;
-    const static uint16_t STOP = 0;
-    // BASIC FLAG
+    const static uint16_t CONNECTION = 3;
+    const static uint16_t CLIENT_DISCONNECTION = 4;
+    const static uint16_t HOST_DISCONNECTION = 5;
+    const static uint16_t TIMEOUT = 6;
+    const static uint16_t UNEXPECTED_DISCONNECTION = 7;
+    const static uint16_t MESSAGE = 8;
+    const static uint16_t BAN = 9;
+    const static uint16_t STOP = 10;
 
-    const static uint16_t MAX_EVENTS_SIZE = 1023; // Determine the size of a chunk of events, independant of the number of users
-    const static uint16_t MAX_USERS = 65535;      // Determine the maximum number of users
+    const static uint16_t MAX_EVENTS_SIZE = 1023;
+    const static uint16_t MAX_USERS = 65535;
 
 private:
     struct epoll_event events[MAX_EVENTS_SIZE];
-    std::vector<Listener> ListenerArray;
-    std::unordered_map<uint32_t, T *> addrBanMap;
-    std::unordered_map<int, T *> socketClientMap;
-    int activeEvents = 0;
-    int epollfd;
-    int pipefd[2];
+    std::vector<Listener> listener_array;
+    std::set<uint32_t, T *> addr_ban_set;
+    std::unordered_map<int, std::shared_ptr<T>> socket_client_map;
+    int active_events = 0;
+    int epoll_fd;
+    int pipe_fd[2];
     std::vector<int> fds;
 
-    // SERVER
+    std::mutex loop_bool_mutex;
+    std::mutex pipe_unique_mutex;
+    std::thread my_thread;
+    bool loop_bool;
+    bool is_running;
 
-    std::condition_variable cond;
-    std::mutex loopBoolMutex;
-    std::shared_mutex pipe_shared_mutex;
-    std::thread myThread;
-    bool loopBool;
-    bool isRunning;
+    int keepalive = 1;
+    int keepidle = 60;
+    int keepintvl = 10;
+    int keepcnt = 5;
 
-    // méthodes
-    void getError(const char *where)
+    void get_socket_error(const char *where, int fd)
     {
-        std::string error = strerror(errno) + (std::string) " in " + where;
-        Console::printError(error);
+        int err = 0;
+        socklen_t len = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0)
+        {
+            std::string error = std::string("Socket error:") + std::string(strerror(err));
+            Console::print_error(error);
+        }
+        disconnect(fd);
     };
 
-    bool hasEvent(uint32_t events)
+    void get_error(const char *where)
+    {
+        std::string error = std::string(strerror(errno)) + std::string(" in ") + std::string(where);
+    }
+
+    bool has_event(uint32_t events)
     {
         return (events == 0) ? false : true;
     };
 
-    bool isPipe(int fd)
+    bool is_pipe(int fd)
     {
-        return (fd == pipefd[0]) ? true : false;
+        return (fd == pipe_fd[0]) ? true : false;
     };
 
-    bool isErrorEvent(uint32_t events)
+    bool is_error_event(uint32_t events)
     {
         return (events & EPOLLERR) ? true : false;
     };
 
-    bool isReadEvent(uint32_t events)
+    bool is_read_event(uint32_t events)
     {
         return (events == EPOLLIN || events == (EPOLLIN | EPOLLET));
     }
 
-    bool isListener(int fd)
+    bool is_listener(int fd)
     {
-        for (size_t j = 0; j < ListenerArray.size(); j++)
+        for (size_t j = 0; j < listener_array.size(); j++)
         {
-            if (ListenerArray[j].socket != fd)
+            if (listener_array[j].socket != fd)
             {
                 continue;
             }
-            if (ListenerArray[j].type != Server<T>::TCP)
+            if (listener_array[j].type != Server<T>::TCP)
             {
                 continue;
             }
@@ -393,56 +284,66 @@ private:
     {
         ProcessMonitor pm("check_file_descriptor");
 
-        for (int i = 0; i < activeEvents && fdr > 0; i++)
+        for (int i = 0; i < active_events && fdr > 0; i++)
         {
             int fd = events[i].data.fd;
-            if (!isReadEvent(events[i].events))
+            if (!is_read_event(events[i].events))
             {
                 std::cout << " Revents : " << events[i].events << ", fd : " << fd << std::endl;
-                getError("revents");
+
+                get_socket_error("revents", fd);
                 continue;
             }
-            if (!hasEvent(events[i].events))
+            if (!has_event(events[i].events))
             {
                 continue;
             }
-            if (isPipe(fd))
+            if (is_pipe(fd))
             {
-                if (!processPipeMessage(fd))
+                if (!process_pipe_message(fd))
                 {
                     return false;
                 }
                 continue;
             }
-            if (isListener(fd))
+            if (is_listener(fd))
             {
                 new_connection(fd);
                 fdr--;
                 continue;
             }
-
-            if (this->isDisconnected(fd))
+            if (is_timeout(fd))
             {
+                disconnect(fd, Server<T>::TIMEOUT);
+                // send_task(std::string("server"), std::string("server"), Server<T>::TIMEOUT, fd);
+            }
+            if (is_unexpected_disconnection(fd))
+            {
+                disconnect(fd, Server<T>::UNEXPECTED_DISCONNECTION);
+                // send_task(std::string("server"), std::string("server"), Server<T>::UNEXPECTED_DISCONNECTION, fd);
+            }
 
-                this->disconnect(fd);
-                this->sendTask(std::string("server"), std::string("server"), Server<T>::DISCONNECTED, fd);
+            if (has_client_disconnected(fd))
+            {
+                disconnect(fd, Server<T>::CLIENT_DISCONNECTION);
+                // send_task(std::string("server"), std::string("server"), Server<T>::DISCONNECTED, fd);
             }
             else
             {
-                this->sendTask(std::string("server"), std::string("server"), Server<T>::MESSAGE, fd);
+                send_task(std::string("server"), std::string("server"), Server<T>::MESSAGE, fd);
             }
             fdr--;
         }
         return true;
     };
 
-    bool processPipeMessage(uint32_t fd)
+    bool process_pipe_message(uint32_t fd)
     {
         uint32_t message;
         uint16_t flag, fd_check;
         if (read(fd, &message, 4) == -1)
         {
-            getError("read");
+            get_socket_error("read", fd);
             return false;
         }
         decode_interrupt_wait_message(message, flag, fd_check);
@@ -455,35 +356,71 @@ private:
         {
             // to do
         }
-        if (flag == Server<T>::DISCONNECTED)
+        if (flag == Server<T>::HOST_DISCONNECTION)
         {
             disconnect(fd_check);
         }
         return true;
     }
 
-    void disconnect(int fd)
+    void disconnect(int fd, int reason = Server<T>::CLIENT_DISCONNECTION)
     {
-        T *client = this->findClient(fd);
+        std::shared_ptr<T> client = find_client(fd);
         if (client == nullptr)
         {
-            Console::printWarning("Client has already been disconnected");
+            Console::print_warning("Client has already been disconnected");
             return;
         }
-        onDisconnect(client);
-        this->socketClientMap.erase(fd); // call the onDisconnect function
-        remove_file_descriptor(fd);      // memove shift the events to fill the void created by the suppression of the fd
-        close(fd);                       // decrement the number of active events
+        client->set_active(false);
+        on_disconnect(client, reason);
+        socket_client_map.erase(fd);
+        remove_file_descriptor(fd);
+        close(fd);
     };
 
-    // virtual function to be implemented in the child class
-
-    bool isDisconnected(int fd)
+    bool is_timeout(int fd)
     {
-        char buffer[1];
-        if (recv(fd, buffer, 1, MSG_PEEK) == 0)
+        char buffer[1024];
+        ssize_t bytes_received = recv(fd, buffer, sizeof(buffer), MSG_PEEK);
+        if (bytes_received < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                return true;
+            }
+        };
+        return false;
+    };
+
+    bool is_unexpected_disconnection(int fd)
+    {
+        char buffer[1024];
+        ssize_t bytes_received = recv(fd, buffer, sizeof(buffer), MSG_PEEK);
+        if (bytes_received < 0)
+        {
+            if (errno == ECONNRESET || errno == ETIMEDOUT || errno == ENOTCONN)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    bool has_client_disconnected(int fd)
+    {
+        char buffer[1024];
+        ssize_t byte = recv(fd, buffer, 1, MSG_PEEK);
+        if (byte == 0)
         {
             return true;
+        }
+        if (byte == -1)
+        {
+            if (errno == ECONNRESET || errno == ETIMEDOUT || errno == ENOTCONN)
+            {
+                // Déconnexion brutale ou timeout
+                return true;
+            }
         }
         return false;
     };
@@ -504,177 +441,221 @@ private:
 
     int new_connection(int fd)
     {
-        struct sockaddr_in socketParam
+        struct sockaddr_in socket_param
         {
         };
-        socklen_t socketaddrLen = sizeof(socketParam);
-        int new_fd = accept(fd, (struct sockaddr *)&socketParam, (socklen_t *)&socketaddrLen);
+        socklen_t socket_addr_len = sizeof(socket_param);
+        int new_fd = accept(fd, (struct sockaddr *)&socket_param, (socklen_t *)&socket_addr_len);
         if (new_fd < 0)
         {
-            Console::printError("error on accept socket");
-            getError("accept");
+            Console::print_error("error on accept socket");
+            get_socket_error("accept", fd);
             return -1;
         }
-        addFD(new_fd);
-        T *client = new T(socketParam.sin_addr.s_addr, socketParam.sin_port, new_fd);
-        socketClientMap.insert(std::pair<int, T *>(new_fd, client));
-        this->sendTask(std::string("server"), std::string("server"), Server<T>::NEW_CONNECTION, new_fd);
+        if (setsockopt(new_fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) == -1)
+        {
+            Console::print_error(std::string("Erreur : SO_KEEPALIVE - ") + std::string(strerror(errno)));
+        }
+        // define TCP_KEEPIDLE
+        if (setsockopt(new_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle)) == -1)
+        {
+            Console::print_error(std::string("Erreur : TCP_KEEPIDLE - ") + std::string(strerror(errno)));
+        }
+        // define TCP_KEEPINTVL
+        if (setsockopt(new_fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl)) == -1)
+        {
+            Console::print_error(std::string("Erreur : TCP_KEEPINTVL - ") + std::string(strerror(errno)));
+        }
+        // define TCP_KEEPCNT
+        if (setsockopt(new_fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt)) == -1)
+        {
+            Console::print_error(std::string("Erreur : TCP_KEEPCNT - ") + std::string(strerror(errno)));
+        }
+
+        add_fd(new_fd);
+
+        std::shared_ptr<T> client = std::make_shared<T>(socket_param.sin_addr.s_addr, socket_param.sin_port, new_fd);
+        socket_client_map.insert(std::pair<int, std::shared_ptr<T>>(new_fd, client));
+        send_task(std::string("server"), std::string("server"), Server<T>::CONNECTION, new_fd);
         return new_fd;
     };
-    void addFD(int fd)
+
+    void add_fd(int fd)
     {
-        if (activeEvents == MAX_EVENTS_SIZE)
+        if (active_events == MAX_EVENTS_SIZE)
         {
             return;
         }
 
-        events[activeEvents].data.fd = fd;
-        events[activeEvents].events = EPOLLIN | EPOLLET;
-        epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &events[activeEvents]);
+        events[active_events].data.fd = fd;
+        events[active_events].events = EPOLLIN | EPOLLET;
+        epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &events[active_events]);
         fds.push_back(fd);
-        activeEvents++;
+        active_events++;
     };
+
     void remove_file_descriptor(int fd)
     {
-        if (epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL) == -1)
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL) == -1)
         {
-            getError("D fd: ");
+            get_socket_error("D fd: ", fd);
         }
-        for (int i = 0; i < activeEvents; i++)
+        for (int i = 0; i < active_events; i++)
         {
-            if (this->events[i].data.fd == fd)
+            if (events[i].data.fd == fd)
             {
-                memmove(&events[i], &events[i + 1], (activeEvents - i - 1) * sizeof(epoll_event));
-                this->activeEvents -= 1;
+                memmove(&events[i], &events[i + 1], (active_events - i - 1) * sizeof(epoll_event));
+                active_events -= 1;
             }
         }
     }
 
-    void closeAllConnections()
+    void close_all_connections()
     {
-        for (unsigned short i = 1; i < activeEvents; i++)
+        for (unsigned short i = 1; i < active_events; i++)
         {
             close(events[i].data.fd);
         }
 
-        close(pipefd[0]);
-        close(pipefd[1]);
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
     };
 
     bool init()
     {
-        if (ListenerArray.empty())
+        if (listener_array.empty())
         {
-            Console::printError("No listeners set");
+            Console::print_error("No listeners set");
             return false;
         }
 
-        epollfd = epoll_create1(0);
-        if (epollfd == -1)
+        epoll_fd = epoll_create1(0);
+        if (epoll_fd == -1)
         {
-            getError("epol");
-            // exit(EXIT_FAILURE);
+            get_socket_error("epol", epoll_fd);
         }
 
-        if (fcntl(this->pipefd[0], F_SETFL, O_NONBLOCK) == -1)
+        if (fcntl(pipe_fd[0], F_SETFL, O_NONBLOCK) == -1)
         {
-            getError("fcntl");
-            // exit(EXIT_FAILURE);
+            get_socket_error("fcntl", pipe_fd[0]);
         }
 
-        fds.push_back(pipefd[0]);
+        fds.push_back(pipe_fd[0]);
 
         events[0].events = EPOLLIN | EPOLLET;
-        events[0].data.fd = pipefd[0];
-        Console::printInfo("pipe created : " + std::to_string(pipefd[0]));
+        events[0].data.fd = pipe_fd[0];
+        Console::print_info("pipe created : " + std::to_string(pipe_fd[0]));
 
-        if (epoll_ctl(epollfd, EPOLL_CTL_ADD, pipefd[0], &events[0]) == -1)
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pipe_fd[0], &events[0]) == -1)
         {
-            getError("epoll_ctl");
+            get_socket_error("epoll_ctl", pipe_fd[0]);
         }
 
         int on = 1;
-        // Set in File descriptor all listeners
-        for (long unsigned int i = 0; i < ListenerArray.size(); i++)
+        for (long unsigned int i = 0; i < listener_array.size(); i++)
         {
-            setsockopt(ListenerArray[i].socket, SOL_SOCKET, SO_REUSEADDR, (char *)&on, (socklen_t)sizeof(on));
-            fcntl(ListenerArray[i].socket, F_SETFL, O_NONBLOCK);
+            setsockopt(listener_array[i].socket, SOL_SOCKET, SO_REUSEADDR, (char *)&on, (socklen_t)sizeof(on));
+            fcntl(listener_array[i].socket, F_SETFL, O_NONBLOCK);
             events[i + 1].events = EPOLLIN | EPOLLET;
-            events[i + 1].data.fd = ListenerArray[i].socket;
-            if (epoll_ctl(epollfd, EPOLL_CTL_ADD, ListenerArray[i].socket, &events[i + 1]) == -1)
+            events[i + 1].data.fd = listener_array[i].socket;
+            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listener_array[i].socket, &events[i + 1]) == -1)
             {
-                getError("Epoll ctl");
+                get_socket_error("Epoll ctl", listener_array[i].socket);
             }
-            activeEvents++;
+            active_events++;
         }
 
-        // Bind all listeners
-        for (long unsigned int i = 0; i < ListenerArray.size(); i++)
+        for (long unsigned int i = 0; i < listener_array.size(); i++)
         {
-
-            sockaddr_in bindParams;
-            bindParams.sin_family = AF_INET;
-            bindParams.sin_port = htons(ListenerArray[i].port);
-            inet_aton("127.0.0.1", &bindParams.sin_addr);
-            int error = bind(ListenerArray[i].socket, (struct sockaddr *)&bindParams, (socklen_t)sizeof(bindParams));
+            sockaddr_in bind_params;
+            bind_params.sin_family = AF_INET;
+            bind_params.sin_port = htons(listener_array[i].port);
+            inet_aton("127.0.0.1", &bind_params.sin_addr);
+            int error = bind(listener_array[i].socket, (struct sockaddr *)&bind_params, (socklen_t)sizeof(bind_params));
 
             if (error != 0)
             {
-                getError("bind");
+                get_socket_error("bind", listener_array[i].socket);
                 return false;
             }
 
-            std::string info = "server bind on port : " + std::to_string(ListenerArray[i].port);
-            Console::printInfo(info);
+            std::string info = "server bind on port : " + std::to_string(listener_array[i].port);
+            Console::print_info(info);
         }
         return true;
     };
-    void asyncFunction(Task task) override
+
+    std::string get_flag_string(uint16_t flag)
+    {
+        switch (flag)
+        {
+        case Server<T>::CONNECTION:
+            return "CONNECTION";
+        case Server<T>::CLIENT_DISCONNECTION:
+            return "CLIENT_DISCONNECTION";
+        case Server<T>::HOST_DISCONNECTION:
+            return "HOST_DISCONNECTION";
+        case Server<T>::TIMEOUT:
+            return "TIMEOUT";
+        case Server<T>::UNEXPECTED_DISCONNECTION:
+            return "UNEXPECTED_DISCONNECTION";
+        case Server<T>::MESSAGE:
+            return "MESSAGE";
+        case Server<T>::BAN:
+            return "BAN";
+        case Server<T>::STOP:
+            return "STOP";
+        default:
+            return "UNKNOWN";
+        }
+    }
+
+    void async_function(Task task) override
     {
         std::cout << task.fd << " " << task.flag << std::endl;
-        auto it = this->socketClientMap.find(task.fd);
-        if (it == this->socketClientMap.end())
+        auto it = socket_client_map.find(task.fd);
+        if (it == socket_client_map.end())
         {
-            Console::printError("Client not found in map");
+            Console::print_error("Client not found in map");
             return;
         }
-        T *client = it->second;
-        this->receiveTask(client, task.flag);
+        std::shared_ptr<T> client = it->second;
+        receive_task(client, task.flag);
     };
 
-    void sendTask(std::string destination, std::string source, int flag, int fd)
+    void send_task(std::string destination, std::string source, int flag, int fd)
     {
         Task task{};
         task.destination = destination;
         task.source = source;
         task.flag = flag;
         task.fd = fd;
-        this->doTask(task);
+        do_task(task);
     };
 
     void loop()
     {
-        Console::printInfo("Listening...");
+        Console::print_info("Listening...");
         do
         {
-            int fdr = epoll_wait(epollfd, events, MAX_EVENTS_SIZE, -1);
+            int fdr = epoll_wait(epoll_fd, events, MAX_EVENTS_SIZE, -1);
             if (fdr < 0)
             {
                 if (fdr == -1)
                 {
                     if (errno == EINTR)
                     {
-                        Console::printError("Intereupted system call");
+                        Console::print_error("Intereupted system call");
                         continue;
                     }
                 }
                 perror("Erreur dans epoll_wait()");
-                getError("epoll_wait");
+                get_error("epoll_wait");
                 break;
             }
             if (fdr == 0)
             {
-                Console::printWarning("Time out reached");
+                Console::print_warning("Time out reached");
                 break;
             }
             if (fdr > 0)
@@ -685,6 +666,6 @@ private:
                 }
             }
         } while (true);
-        Console::printInfo("not Listening...");
+        Console::print_info("not Listening...");
     };
 };
