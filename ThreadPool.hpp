@@ -7,7 +7,7 @@
 #include <functional>
 #include <shared_mutex>
 #include <iostream>
-#include "Console.hpp"
+#include "Logger.hpp"
 #include "ProcessMonitor.hpp"
 
 class Task
@@ -42,7 +42,10 @@ public:
 		// Get exclusive access to the queue
 		std::unique_lock<std::mutex> l(this->mutex);
 		if (this->queue.size() >= MAX_ITEM_QUEUED)
+		{
+			Logger::add_logs("Queue is full, can't add more task.", LogLevel::WARNING);
 			return;
+		}
 
 		// Put value into queue
 		this->queue.push(value);
@@ -54,7 +57,7 @@ public:
 	void sendStop()
 	{
 		this->isTerminated = true;
-		Console::print_info("All the thread were ordered to die.");
+		Logger::add_logs("All the thread were ordered to die.", LogLevel::WARNING);
 		this->not_empty.notify_all();
 	}
 
@@ -82,24 +85,29 @@ class Worker
 private:
 	std::shared_ptr<Channel<T>> chan;
 	std::thread thread;
-	uint threadID;
-	static uint runningThread;
 
 public:
+	bool isRunning;
+	uint threadID;
+	static uint numThread;
+
 	Worker(std::shared_ptr<Channel<T>> &chan, void (*asyncFunction)(T task))
 	{
 		this->chan = chan;
-		this->threadID = runningThread + 1;
-		this->runningThread += 1;
+		this->threadID = numThread + 1;
+		this->numThread += 1;
+		this->isRunning = false;
 		this->thread = std::thread([=]()
 								   {
 			for (;;)
 			{
 				T value;
+				this->isRunning = false;
 				if(!chan->recv(value))
 				{
 					break;
 				}
+				this->isRunning = true;
 				ProcessMonitor pm("Worker ");
 				asyncFunction(value);
 			} });
@@ -107,19 +115,20 @@ public:
 
 	~Worker()
 	{
-		this->runningThread -= 1;
 		if (this->thread.joinable())
 		{
 			this->thread.join();
 		}
-		if (this->runningThread == 0)
+		this->numThread -= 1;
+		Logger::add_logs("Worker " + std::to_string(this->threadID) + " is destroyed.", LogLevel::WARNING);
+		if (this->numThread == 0)
 		{
-			Console::print_info("All workers are destroyed.");
+			Logger::add_logs("All workers are destroyed.", LogLevel::WARNING);
 		}
 	}
 };
 template <typename T>
-uint Worker<T>::runningThread = 0;
+uint Worker<T>::numThread = 0;
 
 template <typename T, int N>
 class ThreadPool
@@ -146,5 +155,23 @@ public:
 	void send(const T &task)
 	{
 		this->chan->send(task);
+	}
+
+	int get_running_workers()
+	{
+		int runningThread = 0;
+		for (auto &worker : pool)
+		{
+			if (worker->isRunning)
+			{
+				runningThread += 1;
+			}
+		}
+		return runningThread;
+	}
+
+	int get_max_workers()
+	{
+		return Worker<T>::numThread;
 	}
 };

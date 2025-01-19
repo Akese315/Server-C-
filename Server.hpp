@@ -114,11 +114,12 @@ public:
     {
         is_running = false;
         interrupt_epoll_wait(Server::STOP, 0);
+        Logger::add_logs("Server is stopping...", LogLevel::WARNING);
         if (my_thread.joinable())
         {
             my_thread.join();
         }
-        Console::print_warning("Server is stopped");
+        Logger::add_logs("Server is stopped", LogLevel::WARNING);
     };
 
     virtual void receive_task(std::shared_ptr<T> client, uint32_t task_flag) {};
@@ -127,14 +128,14 @@ public:
 
     void start()
     {
-        Console::print_success("Server is starting...");
+        Logger::add_logs("Server is starting...", LogLevel::PASS);
         bool can_start = init();
         if (!can_start)
         {
-            Console::print_error("Can't start.");
+            Logger::add_logs("Can't start.", LogLevel::ERROR);
             return;
         }
-        Console::print_success("Server started :)");
+        Logger::add_logs("Server started :)", LogLevel::PASS);
 
         for (size_t i = 0; i < listener_array.size(); i++)
         {
@@ -162,16 +163,16 @@ public:
         {
             get_socket_error("create listener", listener.socket);
         }
-        Console::print_info("socket created : " + std::to_string(listener.socket));
+        Logger::add_logs("socket created : " + std::to_string(listener.socket), LogLevel::INFO);
         return listener;
     };
 
-    int interrupt_epoll_wait(int flag, int fd)
+    int interrupt_epoll_wait(uint32_t flag, int fd)
     {
         uint32_t message = 0;
         encode_interrupt_wait_message(message, flag, fd);
         std::unique_lock lock(pipe_unique_mutex);
-        if (write(fd, &message, 4) == -1)
+        if (write(pipe_fd[1], &message, 4) == -1)
         {
             perror("write");
             return -1;
@@ -232,10 +233,17 @@ private:
         socklen_t len = sizeof(err);
         if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0)
         {
-            std::string error = std::string("Socket error:") + std::string(strerror(err));
-            Console::print_error(error);
+            if (err != 0) // Only handle actual errors
+            {
+                std::string error = std::string("Socket error: ") + std::string(strerror(err));
+                Logger::add_logs(error, LogLevel::ERROR);
+                disconnect(fd);
+            }
         }
-        disconnect(fd);
+        else
+        {
+            get_error("Failed to get socket error status");
+        }
     };
 
     void get_error(const char *where)
@@ -289,8 +297,6 @@ private:
             int fd = events[i].data.fd;
             if (!is_read_event(events[i].events))
             {
-                std::cout << " Revents : " << events[i].events << ", fd : " << fd << std::endl;
-
                 get_socket_error("revents", fd);
                 continue;
             }
@@ -347,7 +353,6 @@ private:
             return false;
         }
         decode_interrupt_wait_message(message, flag, fd_check);
-
         if (flag == Server<T>::STOP)
         {
             return false;
@@ -368,13 +373,14 @@ private:
         std::shared_ptr<T> client = find_client(fd);
         if (client == nullptr)
         {
-            Console::print_warning("Client has already been disconnected");
+            Logger::add_logs("Client has already been disconnected", LogLevel::WARNING);
             return;
         }
         client->set_active(false);
         on_disconnect(client, reason);
         socket_client_map.erase(fd);
         remove_file_descriptor(fd);
+        fds.erase(std::remove(fds.begin(), fds.end(), fd), fds.end());
         close(fd);
     };
 
@@ -448,28 +454,28 @@ private:
         int new_fd = accept(fd, (struct sockaddr *)&socket_param, (socklen_t *)&socket_addr_len);
         if (new_fd < 0)
         {
-            Console::print_error("error on accept socket");
+            Logger::add_logs("error on accept socket", LogLevel::ERROR);
             get_socket_error("accept", fd);
             return -1;
         }
         if (setsockopt(new_fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) == -1)
         {
-            Console::print_error(std::string("Erreur : SO_KEEPALIVE - ") + std::string(strerror(errno)));
+            Logger::add_logs(std::string("Erreur : SO_KEEPALIVE - ") + std::string(strerror(errno)), LogLevel::ERROR);
         }
         // define TCP_KEEPIDLE
         if (setsockopt(new_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle)) == -1)
         {
-            Console::print_error(std::string("Erreur : TCP_KEEPIDLE - ") + std::string(strerror(errno)));
+            Logger::add_logs(std::string("Erreur : TCP_KEEPIDLE - ") + std::string(strerror(errno)), LogLevel::ERROR);
         }
         // define TCP_KEEPINTVL
         if (setsockopt(new_fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl)) == -1)
         {
-            Console::print_error(std::string("Erreur : TCP_KEEPINTVL - ") + std::string(strerror(errno)));
+            Logger::add_logs(std::string("Erreur : TCP_KEEPINTVL - ") + std::string(strerror(errno)), LogLevel::ERROR);
         }
         // define TCP_KEEPCNT
         if (setsockopt(new_fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt)) == -1)
         {
-            Console::print_error(std::string("Erreur : TCP_KEEPCNT - ") + std::string(strerror(errno)));
+            Logger::add_logs(std::string("Erreur : TCP_KEEPCNT - ") + std::string(strerror(errno)), LogLevel::ERROR);
         }
 
         add_fd(new_fd);
@@ -517,15 +523,15 @@ private:
             close(events[i].data.fd);
         }
 
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
+        close(pipe_fd[0]); // close reading pipe
+        close(pipe_fd[1]); // close writing pipe
     };
 
     bool init()
     {
         if (listener_array.empty())
         {
-            Console::print_error("No listeners set");
+            Logger::add_logs("No listeners set", LogLevel::ERROR);
             return false;
         }
 
@@ -540,11 +546,11 @@ private:
             get_socket_error("fcntl", pipe_fd[0]);
         }
 
-        fds.push_back(pipe_fd[0]);
+        fds.push_back(pipe_fd[0]); // add read pipe to fds
 
         events[0].events = EPOLLIN | EPOLLET;
         events[0].data.fd = pipe_fd[0];
-        Console::print_info("pipe created : " + std::to_string(pipe_fd[0]));
+        Logger::add_logs("pipe created : " + std::to_string(pipe_fd[0]), LogLevel::INFO);
 
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pipe_fd[0], &events[0]) == -1)
         {
@@ -580,7 +586,7 @@ private:
             }
 
             std::string info = "server bind on port : " + std::to_string(listener_array[i].port);
-            Console::print_info(info);
+            Logger::add_logs(info, LogLevel::INFO);
         }
         return true;
     };
@@ -612,11 +618,10 @@ private:
 
     void async_function(Task task) override
     {
-        std::cout << task.fd << " " << task.flag << std::endl;
         auto it = socket_client_map.find(task.fd);
         if (it == socket_client_map.end())
         {
-            Console::print_error("Client not found in map");
+            Logger::add_logs("Client not found in map", LogLevel::ERROR);
             return;
         }
         std::shared_ptr<T> client = it->second;
@@ -635,7 +640,7 @@ private:
 
     void loop()
     {
-        Console::print_info("Listening...");
+        Logger::add_logs("Listening...", LogLevel::INFO);
         do
         {
             int fdr = epoll_wait(epoll_fd, events, MAX_EVENTS_SIZE, -1);
@@ -645,7 +650,7 @@ private:
                 {
                     if (errno == EINTR)
                     {
-                        Console::print_error("Intereupted system call");
+                        Logger::add_logs("Intereupted system call", LogLevel::WARNING);
                         continue;
                     }
                 }
@@ -655,7 +660,7 @@ private:
             }
             if (fdr == 0)
             {
-                Console::print_warning("Time out reached");
+                Logger::add_logs("Time out reached", LogLevel::WARNING);
                 break;
             }
             if (fdr > 0)
@@ -666,6 +671,6 @@ private:
                 }
             }
         } while (true);
-        Console::print_info("not Listening...");
+        Logger::add_logs("not Listening...", LogLevel::INFO);
     };
 };

@@ -22,7 +22,7 @@ void App::loop()
 
 void App::async_function(Task task)
 {
-    Console::print_success("hey this is the async function of app");
+    Logger::add_logs("hey this is the async function of app", LogLevel::INFO);
 }
 
 void App::stop()
@@ -35,7 +35,7 @@ void App::stop()
         loopBoolMutex.unlock();
         this->myThread.join();
     }
-    Console::print_warning("App is stopped");
+    Logger::add_logs("App is stopped");
 }
 
 App::~App()
@@ -43,6 +43,6 @@ App::~App()
     if (this->isRunning)
     {
         this->stop();
-        Console::print_warning("App is stopped");
+        Logger::add_logs("App is stopped");
     }
 }

@@ -1,7 +1,7 @@
 #pragma once
 #include <unordered_map>
 #include <string>
-#include "Console.hpp"
+#include "Logger.hpp"
 #include "ThreadPool.hpp"
 #include <functional>
 #include <iostream>
@@ -11,6 +11,8 @@ class Supervisor
 {
 public:
     Supervisor(std::string name);
+    int get_running_workers();
+    int get_max_workers();
     ~Supervisor();
 
 protected:

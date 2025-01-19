@@ -7,7 +7,9 @@ ThreadPool<Task, 10> Supervisor::threadPool([](Task task)
 Supervisor::Supervisor(std::string name)
 {
     this->objectList.insert({name, this});
-    std::cout << this << " address of " << name << std::endl;
+    std::stringstream ss;
+    ss << this;
+    Logger::add_logs("objet " + name + " : " + ss.str() + " has been created");
 }
 
 Supervisor::~Supervisor()
@@ -20,10 +22,20 @@ Supervisor::~Supervisor()
             ss << this;
             objectList.erase(object.first);
             std::string message = "objet " + object.first + " : " + ss.str() + " has been removed";
-            Console::print_warning(message);
+            Logger::add_logs(message);
             break;
         }
     }
+}
+
+int Supervisor::get_running_workers()
+{
+    return threadPool.get_running_workers();
+}
+
+int Supervisor::get_max_workers()
+{
+    return threadPool.get_max_workers();
 }
 
 void Supervisor::receive_async_function(Task task)

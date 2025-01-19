@@ -88,7 +88,7 @@ void Client::sendData(const char *data, size_t len)
     {
         if (!this->isActive)
         {
-            Console::print_error("Client is not active");
+            Logger::add_logs("Client is not active");
             return;
         }
         std::unique_lock<std::shared_mutex> lock(this->fdmutex);
@@ -96,7 +96,7 @@ void Client::sendData(const char *data, size_t len)
     }
     catch (...)
     {
-        Console::print_error("Error while sending");
+        Logger::add_logs("Error while sending", LogLevel::ERROR);
         throw std::runtime_error("Error while sending");
     }
 };
@@ -113,7 +113,7 @@ void Client::onSendData(const char *data, size_t len)
     if ((size_t)bytes != len)
     {
         std::string error = "message length is : " + std::to_string(len) + " but sent : " + std::to_string(bytes) + " bytes";
-        Console::print_error(error);
+        Logger::add_logs(error);
     }
 }
 

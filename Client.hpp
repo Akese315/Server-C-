@@ -6,7 +6,7 @@
 #include <mutex>
 #include <arpa/inet.h>
 #include <shared_mutex>
-#include "Console.hpp"
+#include "Logger.hpp"
 
 struct Datacache
 {

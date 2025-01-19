@@ -19,12 +19,12 @@ void MyServer::receive_task(std::shared_ptr<Client> client, uint32_t flagTask)
     }
     if (flagTask == MyServer::CONNECTION)
     {
-        Console::print_success("new connection : " + std::to_string(client->getSocket()));
+        Logger::add_logs("new connection : " + std::to_string(client->getSocket()), LogLevel::PASS);
         client->sendData("WELCOME_MESSAGE", 21);
     }
     if (flagTask == MyServer::CLIENT_DISCONNECTION)
     {
-        Console::print_info(client->get_adress_str() + " has Flags::DISCONNECTED.");
+        Logger::add_logs(client->get_adress_str() + " has Flags::DISCONNECTED.", LogLevel::WARNING);
     }
     if (flagTask == 2)
     {
